@@ -33,7 +33,7 @@ pipeline {
     SERVICE = "${params.TARGET_SERVICE_NAME}"
     // FIX: Wrap env.BUILD_NUMBER in double quotes to make it a valid string literal.
     BUILD_NUMBER = "${env.BUILD_NUMBER}" // <-- CORRECTED LINE
-    IMAGE = "tdksfot/${SERVICE}"
+    IMAGE = "tdksoft/${SERVICE}"
   }
 
   // --- Pipeline Stages ---
