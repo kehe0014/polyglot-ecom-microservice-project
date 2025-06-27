@@ -1,13 +1,9 @@
+
 // jenkins/Jenkinsfile.shared
 //
 // This file encapsulates the reusable CI/CD pipeline logic for microservices.
-// It is designed to be loaded by individual service-specific Jenkinsfiles,
-// promoting a 'Don't Repeat Yourself' (DRY) principle for pipeline definitions.
-//
-// This script expects two parameters to be passed from the calling Jenkinsfile
-// via the 'load' statement:
-// - `service` (string): The unique name of the microservice (e.g., "user-service").
-// - `build` (string): The Jenkins build number for the current execution.
+// It is designed to be the primary Jenkinsfile for a parameterized job,
+// allowing users to select the target microservice for a build.
 //
 // Agent Requirements:
 // - The Jenkins controller or an available static agent must have:
@@ -18,40 +14,39 @@
 //   - Helm CLI
 //   - Kubectl CLI (configured to interact with your Kubernetes cluster, e.g., k3s)
 
-// Define parameters that this shared script expects.
-// These will be populated by the 'load' statement in the calling Jenkinsfile.
-// Default values are provided as a fallback for testing purposes, but will be overridden.
-def service = 'default-service' // Actual value passed from calling Jenkinsfile
-def build = env.BUILD_NUMBER    // Actual value passed from calling Jenkinsfile
-
 pipeline {
-  // Define the agent where all pipeline stages will execute.
-  // 'agent any' means Jenkins will use any available agent, typically the controller itself
-  // if no other agents are configured, or the first available static agent.
   agent any
+
+  // Define parameters for this pipeline.
+  // When starting a build, Jenkins will present these options to the user.
+  parameters {
+    // String parameter for selecting the target microservice.
+    // 'defaultValue' ensures 'user-service' is pre-selected.
+    string(name: 'TARGET_SERVICE_NAME', defaultValue: 'user-service', description: 'Select the microservice to build and deploy.')
+
+    // Add more parameters as needed, e.g., for build options, deployment environment.
+    // choice(name: 'DEPLOY_ENV', choices: ['dev', 'staging', 'prod'], defaultValue: 'dev', description: 'Select the deployment environment.')
+  }
 
   // --- Global Environment Variables ---
   // These variables are accessible throughout all stages of the pipeline,
-  // including post-actions, resolving the MissingPropertyException.
+  // including post-actions.
   environment {
-    // `SERVICE` is set from the 'service' parameter passed during the `load` call.
-    SERVICE = "${service}"
+    // The SERVICE variable is now dynamically set from the chosen parameter.
+    SERVICE = "${params.TARGET_SERVICE_NAME}"
 
-    // `BUILD_NUMBER` is set from the 'build' parameter passed during the `load` call.
-    BUILD_NUMBER = "${build}"
+    // BUILD_NUMBER is an inherent Jenkins environment variable.
+    BUILD_NUMBER = env.BUILD_NUMBER
 
-    // Constructs the Docker image name using your Docker Hub ID and the service name.
+    // Constructs the Docker image name using your Docker Hub ID and the chosen service name.
     IMAGE = "tdksfot/${SERVICE}"
 
     // The Jenkins Credential ID for authenticating with Docker Hub.
-    // This is explicitly used as a literal string in `docker.withRegistry` to avoid
-    // any Groovy sandbox or variable resolution issues.
+    // This is explicitly used as a literal string in `docker.withRegistry` for robustness.
     // Ensure 'DOCKER_HUB_PASS' is configured as a 'Secret text' credential in Jenkins.
-    // We no longer define a separate env var for its ID here.
   }
 
   // --- Pipeline Stages ---
-  // Each stage represents a distinct phase of the CI/CD process.
   stages {
     // Stage 1: Build Application Artifacts & Push Docker Image
     // This stage handles language-specific compilation/packaging and then
@@ -60,8 +55,7 @@ pipeline {
       steps {
         script {
           // Crucial: Change the current working directory to the specific microservice's
-          // root directory. This ensures all file operations (e.g., finding pom.xml,
-          // Dockerfile context) are performed correctly relative to the service.
+          // root directory, determined by the chosen parameter.
           dir("${SERVICE}") {
             echo "--- Processing service: ${SERVICE} ---"
 
@@ -75,7 +69,6 @@ pipeline {
               echo "INFO: Detected Python project. Dependencies will be installed via Dockerfile."
               // For Python, dependencies from requirements.txt are typically installed
               // as part of the Docker image build process itself (e.g., using RUN pip install).
-              // No direct `pip install` in the Jenkins agent here is usually required.
             } else {
               // If the project type cannot be determined, terminate the pipeline.
               error "ERROR: Neither 'pom.xml' nor 'requirements.txt' found in '${SERVICE}' directory. Cannot determine build type."
@@ -83,8 +76,7 @@ pipeline {
 
             // --- Docker Build and Push ---
             // Authenticates with Docker Hub using the specified Jenkins credential ID.
-            // The `docker.withRegistry` step directly looks up the credential by its ID.
-            docker.withRegistry('https://registry.hub.docker.com', 'DOCKER_HUB_PASS') { // <-- Using literal credential ID
+            docker.withRegistry('https://registry.hub.docker.com', 'DOCKER_HUB_PASS') {
               echo "INFO: Building and pushing Docker image: ${IMAGE}:${BUILD_NUMBER} to Docker Hub."
               // The '.' specifies the Docker build context as the current directory
               // (which is '${SERVICE}' due to the preceding 'dir' step).
@@ -105,7 +97,6 @@ pipeline {
           def targetNamespace = "" // Variable to hold the target Kubernetes namespace
 
           // Determine the target Kubernetes namespace based on the Git branch.
-          // This implements a simple GitOps-like environment promotion strategy.
           if (env.BRANCH_NAME == "develop") {
             targetNamespace = "dev"
           } else if (env.BRANCH_NAME == "staging") {
@@ -113,34 +104,17 @@ pipeline {
           } else if (env.BRANCH_NAME == "main") {
             targetNamespace = "prod"
           } else {
-            // For feature branches or other non-standard branches, skip deployment.
-            // Alternatively, one could deploy to a dedicated review environment namespace.
             echo "INFO: Skipping deployment for branch '${env.BRANCH_NAME}'. No matching deployment environment found."
             return // Exit this stage for unhandled branches
           }
 
           echo "INFO: Target Kubernetes Namespace identified: '${targetNamespace}'."
-
-          // Ensure the target Kubernetes namespace exists.
-          // The `--dry-run=client -o yaml | kubectl apply -f -` command is idempotent
-          // and will create the namespace only if it doesn't already exist.
           echo "INFO: Ensuring Kubernetes namespace '${targetNamespace}' exists."
           sh "kubectl create namespace ${targetNamespace} --dry-run=client -o yaml | kubectl apply -f -"
 
-          // Crucial: Change directory to the root of the Helm chart for the specific service.
-          // This allows Helm commands to use '.' for the chart path.
+          // Change directory to the Helm chart for the selected service.
           dir("${SERVICE}/helm/${SERVICE}") {
             echo "INFO: Deploying Helm chart for '${SERVICE}' to namespace '${targetNamespace}'..."
-            // Execute the Helm upgrade --install command.
-            // This command is idempotent: it installs if the release doesn't exist,
-            // and upgrades if it does.
-            // Key parameters:
-            // - '.': Refers to the current directory (the Helm chart root).
-            // - --namespace: Specifies the target Kubernetes namespace.
-            // - --set image.repository: Overrides the image repository in values.yaml.
-            // - --set image.tag: Overrides the image tag in values.yaml with BUILD_NUMBER.
-            // - --wait: Waits for all release resources to be ready (pods running, services available).
-            // - --timeout: Sets a timeout for the --wait operation.
             sh """
               helm upgrade --install ${SERVICE} . \\
                 --namespace ${targetNamespace} \\
@@ -161,7 +135,6 @@ pipeline {
   post {
     // Action to take if any stage in the pipeline fails.
     failure {
-      // SERVICE and env.BRANCH_NAME are now available because SERVICE is an env var.
       echo "ERROR: Pipeline for ${SERVICE} on branch ${env.BRANCH_NAME} failed!"
       // Send an email notification for pipeline failure.
       // This relies on Jenkins' global email configuration (Manage Jenkins -> Configure System).
