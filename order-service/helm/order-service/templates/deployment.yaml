@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "order-service.fullname" . }}
+  labels:
+    app: {{ include "order-service.name" . }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ include "order-service.name" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "order-service.name" . }}
+    spec:
+      containers:
+        - name: {{ include "order-service.name" . }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          ports:
+            - containerPort: {{ .Values.service.port }}

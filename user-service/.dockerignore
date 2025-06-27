@@ -1,0 +1,10 @@
+# user-service/.dockerignore (or order-service/.dockerignore)
+.git
+.gitignore
+target/
+# If using IDE in container, uncomment relevant lines
+.idea/
+.vscode/
+*.iml
+*.log
+.env

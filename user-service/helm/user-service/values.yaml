@@ -1,0 +1,5 @@
+image:
+  repository: tdksoft/user-service
+  tag: latest
+service:
+  port: 8081

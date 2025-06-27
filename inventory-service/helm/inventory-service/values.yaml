@@ -1,0 +1,5 @@
+image:
+  repository: tdksoft/payment-service
+  tag: latest
+service:
+  port: 8002

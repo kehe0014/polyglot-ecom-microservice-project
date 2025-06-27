@@ -1,0 +1,22 @@
+// inventory-service/Jenkinsfile
+//
+// This Jenkinsfile serves as the entry point for the 'inventory-service' pipeline.
+// It defines service-specific context variables and loads the core CI/CD logic
+// from the shared Jenkinsfile, promoting reusability and maintainability
+// across all microservices in the monorepo.
+
+// --- Service-Specific Configuration ---
+// Define the unique identifier for this microservice.
+// This variable is used by the shared pipeline to locate service-specific files
+// (e.g., Dockerfile, Helm chart) and construct image names.
+def SERVICE = "inventory-service"
+
+// Leverage Jenkins' built-in environment variable for the unique build number.
+// This is typically used as the Docker image tag for versioning.
+def BUILD_NUMBER = env.BUILD_NUMBER
+
+// --- Load Shared Pipeline Logic ---
+// Load the primary pipeline definition from the shared library.
+// The path 'jenkins/Jenkinsfile.shared' is relative to the Jenkins workspace root
+// (which corresponds to the 'ecom-microservices-project' Git repository root).
+load 'jenkins/Jenkinsfile.shared'

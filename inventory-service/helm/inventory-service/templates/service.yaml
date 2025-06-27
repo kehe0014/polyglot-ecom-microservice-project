@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "inventory-service.fullname" . }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ include "inventory-service.name" . }}
+  ports:
+    - protocol: TCP
+      port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.port }}

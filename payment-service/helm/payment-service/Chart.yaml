@@ -1,0 +1,67 @@
+# ======================================================================================================================
+# Helm Chart API Version - Mandatory.
+# Specifies the API version of the Helm Chart specification.
+# 'v2' indicates a Helm 3 chart, 'v1' is for Helm 2. Always use 'v2' for new charts.
+apiVersion: v2
+
+# Chart Metadata - Essential for identification and discoverability.
+# ----------------------------------------------------------------------------------------------------------------------
+# name: The name of the chart. This should typically be kebab-case and reflect the application or service it deploys.
+#       It is mandatory and must match the chart's directory name.
+name: payment-service
+
+# version: The semantic version of the chart.
+#          Follows SemVer 2.0.0 (e.g., 0.1.0, 1.0.0, 1.0.0-alpha.1).
+#          This version applies to the chart itself, not necessarily the application it deploys.
+version: 0.1.0
+
+# appVersion: The version of the application or service being deployed by this chart.
+#             It's a string, not necessarily SemVer, but often is.
+#             Useful for knowing which application version a chart is designed for.
+appVersion: "1.0.0" # Assuming yourpayment-service application is at version 1.0.0
+
+# description: A concise, human-readable description of the chart's purpose.
+#              Helpful for users Browse charts.
+description: A Helm chart for deploying the User Service microservice.
+
+# type: The type of chart.
+#       'application' for deployable applications (default).
+#       'library' for charts that provide common definitions (e.g., shared templates).
+type: application
+
+# keywords: A list of keywords associated with the chart.
+#           Useful for searching and categorization in chart repositories.
+keywords:
+  - microservice
+  - payment-service
+  - spring-boot
+  - backend
+
+# home: The URL of the project's homepage (e.g., GitHub repo).
+#       Provides a quick link for users to find more information.
+# home: https://github.com/your-org/your-repo/tree/main/payment-service/helm/payment-service # Replace with actual URL
+
+# sources: A list of URLs to the source code of the application or chart.
+#          E.g., Git repositories where the code lives.
+# sources:
+  # - https://github.com/your-org/your-repo # Main repository
+  # - https://github.com/your-org/your-repo/tree/main/payment-service # Specific service directory
+
+# maintainers: A list of people or organizations responsible for maintaining the chart.
+#              Each entry should include 'name' and optionally 'email' and 'url'.
+# maintainers:
+  # - name: Your DevOps Team
+  #  email: devops@your-company.com
+  #  url: https://your-company.com/devops
+
+# icon: A URL to an SVG or PNG image for the chart icon.
+#       Often used in UI tools like Kubernetes dashboards or Helm GUIs.
+# icon: https://example.com/icons/payment-service.svg # Uncomment and replace with actual icon URL
+
+# annotations: A map of non-standard annotations.
+#              Useful for adding custom metadata not covered by other fields.
+annotations:
+  artifacthub.io/changes: |-
+    - Initial release of the Payment Service Helm chart.
+  artifacthub.io/license: Apache-2.0 # Standard license identifier
+  # Add other custom annotations as needed for your organization or toolchain
