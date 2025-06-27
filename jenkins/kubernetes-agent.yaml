@@ -6,10 +6,15 @@ metadata:
     app: jenkins-agent
     purpose: microservice-build
 spec:
-  # Define the Jenkins JNLP agent container for communication with the Jenkins controller.
+  # Add this section:
+  imagePullSecrets:
+  - name: regcred # <--- This refers to the secret created in the jenkis machine
+  # This secret should contain the Docker registry credentials
+  # for pulling the jenkins/jnlp-agent image.
+
   containers:
   - name: jnlp
-    image: jenkins/jnlp-agent:latest # Use a stable JNLP agent image compatible with your Jenkins version
+    image: jenkins/jnlp-agent:latest # No change needed here, it will now use the secret
     args: ['$(JENKINS_SECRET)', '$(JENKINS_NAME)']
     env:
       - name: JENKINS_URL
@@ -22,21 +27,9 @@ spec:
         memory: "256Mi"
         cpu: "200m"
 
-  # Define the main build container with all necessary CI/CD tools.
-  # This container will execute all `sh` and `docker` DSL steps.
   - name: build-tools
-    # --- IMPORTANT: YOU MUST BUILD THIS CUSTOM DOCKER IMAGE ---
-    # This image needs to contain:
-    # - OpenJDK (e.g., JDK 17) for Java builds.
-    # - Apache Maven.
-    # - Python 3 and pip.
-    # - Docker CLI (essential for 'docker build' and 'docker push').
-    # - Helm CLI.
-    # - kubectl CLI.
-    # Example Dockerfile for `tdksfot/jenkins-build-agent:latest` could start from a base OS
-    # like Ubuntu and install these tools.
-    image: tdksfot/jenkins-build-agent:latest # <--- **YOUR CUSTOM BUILD AGENT IMAGE**
-    command: ["cat"] # Keep the container running for Jenkins to attach
+    image: tdksfot/jenkins-build-agent:latest
+    command: ["cat"]
     tty: true
     resources:
       limits:
@@ -45,27 +38,16 @@ spec:
       requests:
         memory: "1Gi"
         cpu: "500m" # 0.5 CPU core
-    # Mount the Docker socket from the host to allow the agent to run Docker commands.
-    # This grants the agent access to the Docker daemon. Requires careful security consideration.
     volumeMounts:
     - name: docker-sock
       mountPath: /var/run/docker.sock
-    # Mount the Jenkins workspace volume to this container
     - name: workspace-volume
       mountPath: /home/jenkins/agent/workspace
 
-  # Define volumes used by the containers in this Pod.
   volumes:
-  # Volume for Docker socket access.
   - name: docker-sock
     hostPath:
       path: /var/run/docker.sock
       type: Socket
-  # Volume for the Jenkins workspace, where the repository will be cloned.
   - name: workspace-volume
-    emptyDir: {} # An empty directory that gets created with the Pod and deleted when the Pod terminates.
-                 # For larger builds or persistence needs, consider a PersistentVolumeClaim.
-
-  # Define an image pull secret if your custom agent image is in a private registry
-  # imagePullSecrets:
-  # - name: your-registry-secret
+    emptyDir: {}
