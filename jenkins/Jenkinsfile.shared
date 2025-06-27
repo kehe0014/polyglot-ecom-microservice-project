@@ -1,92 +1,104 @@
-
 // jenkins/Jenkinsfile.shared
 //
-// This file encapsulates the reusable CI/CD pipeline logic for microservices.
-// It is designed to be the primary Jenkinsfile for a parameterized job,
-// allowing users to select the target microservice for a build.
+// Ce fichier encapsule la logique de pipeline CI/CD réutilisable pour les microservices.
+// Il est conçu pour être le Jenkinsfile principal d'un job paramétré,
+// permettant aux utilisateurs de sélectionner le microservice cible à construire et déployer.
 //
-// Agent Requirements:
-// - The Jenkins controller or an available static agent must have:
-//   - Java Development Kit (JDK)
+// Exigences de l'agent :
+// - Le contrôleur Jenkins ou un agent statique disponible doit avoir :
+//   - Kit de développement Java (JDK)
 //   - Apache Maven
-//   - Python and pip
-//   - Docker CLI (and access to a Docker daemon, e.g., user in 'docker' group)
-//   - Helm CLI
-//   - Kubectl CLI (configured to interact with your Kubernetes cluster, e.g., k3s)
+//   - Python et pip
+//   - CLI Docker (et accès à un démon Docker, par ex. utilisateur dans le groupe 'docker')
+//   - CLI Helm
+//   - CLI Kubectl (configuré pour interagir avec votre cluster Kubernetes, par ex. k3s)
 
 pipeline {
   agent any
 
-  // Define parameters for this pipeline.
-  // When starting a build, Jenkins will present these options to the user.
+  // Définir les paramètres pour ce pipeline.
+  // Lors du démarrage d'une construction, Jenkins présentera ces options à l'utilisateur.
   parameters {
-    // String parameter for selecting the target microservice.
-    // 'defaultValue' ensures 'user-service' is pre-selected.
-    string(name: 'TARGET_SERVICE_NAME', defaultValue: 'user-service', description: 'Select the microservice to build and deploy.')
+    // Paramètre de chaîne pour sélectionner le microservice cible.
+    // 'defaultValue' garantit que 'user-service' est présélectionné.
+    string(name: 'TARGET_SERVICE_NAME', defaultValue: 'user-service', description: 'Sélectionnez le microservice à construire et déployer.')
 
-    // Add more parameters as needed, e.g., for build options, deployment environment.
-    // choice(name: 'DEPLOY_ENV', choices: ['dev', 'staging', 'prod'], defaultValue: 'dev', description: 'Select the deployment environment.')
+    // Ajouter d'autres paramètres si nécessaire, par ex. pour les options de construction, l'environnement de déploiement.
   }
 
-  // --- Global Environment Variables ---
+  // --- Variables d'environnement globales ---
   environment {
+    // La variable SERVICE est maintenant définie dynamiquement à partir du paramètre choisi.
     SERVICE = "${params.TARGET_SERVICE_NAME}"
-    // FIX: Wrap env.BUILD_NUMBER in double quotes to make it a valid string literal.
-    BUILD_NUMBER = "${env.BUILD_NUMBER}" // <-- CORRECTED LINE
-    IMAGE = "tdksoft/${SERVICE}" 
+
+    // BUILD_NUMBER est une variable d'environnement Jenkins inhérente.
+    BUILD_NUMBER = "${env.BUILD_NUMBER}"
+
+    // Construit le nom de l'image Docker en utilisant votre ID Docker Hub et le nom du service.
+    IMAGE = "tdksoft/${SERVICE}" // Assurez-vous que 'tdksoft' est bien votre nom d'utilisateur Docker Hub
   }
 
-  // --- Pipeline Stages ---
+  // --- Étapes du pipeline ---
   stages {
-    // Stage 1: Build Application Artifacts & Push Docker Image
-    // This stage handles language-specific compilation/packaging and then
-    // constructs and pushes the Docker image to the registry.
+    // Étape 1 : Construire les artefacts d'application et pousser l'image Docker
+    // Cette étape gère la compilation/l'empaquetage spécifique au langage, puis
+    // construit et pousse l'image Docker vers le registre.
     stage('Build & Push Image') {
       steps {
         script {
-          // Crucial: Change the current working directory to the specific microservice's
-          // root directory, determined by the chosen parameter.
+          // Important : Changer le répertoire de travail actuel vers le répertoire racine du microservice spécifique,
+          // déterminé par le paramètre choisi.
           dir("${SERVICE}") {
-            echo "--- Processing service: ${SERVICE} ---"
+            echo "--- Traitement du service : ${SERVICE} ---"
 
-            // --- Language-Specific Build Preparation ---
-            // Detects the project type (Java/Maven or Python) and performs
-            // necessary pre-Docker build steps.
+            // --- Préparation de la construction spécifique au langage ---
+            // Détecte le type de projet (Java/Maven ou Python) et effectue
+            // les étapes nécessaires avant la construction Docker.
             if (fileExists('pom.xml')) {
-              echo "INFO: Detected Java/Maven project. Running 'mvn clean package -DskipTests'."
+              echo "INFO: Projet Java/Maven détecté. Exécution de 'mvn clean package -DskipTests'."
               sh 'mvn clean package -DskipTests'
             } else if (fileExists('requirements.txt')) {
-              echo "INFO: Detected Python project. Dependencies will be installed via Dockerfile."
-              // For Python, dependencies from requirements.txt are typically installed
-              // as part of the Docker image build process itself (e.g., using RUN pip install).
+              echo "INFO: Projet Python détecté. Les dépendances seront installées via Dockerfile."
             } else {
-              // If the project type cannot be determined, terminate the pipeline.
-              error "ERROR: Neither 'pom.xml' nor 'requirements.txt' found in '${SERVICE}' directory. Cannot determine build type."
+              // Si le type de projet ne peut pas être déterminé, arrêter le pipeline.
+              error "ERREUR : Ni 'pom.xml' ni 'requirements.txt' trouvés dans le répertoire '${SERVICE}'. Impossible de déterminer le type de construction."
             }
 
-            // --- Docker Build and Push ---
-            // Authenticates with Docker Hub using the specified Jenkins credential ID.
-            docker.withRegistry('https://registry.hub.docker.com', 'DOCKER_HUB_PASS') {
-              echo "INFO: Building and pushing Docker image: ${IMAGE}:${BUILD_NUMBER} to Docker Hub."
-              // The '.' specifies the Docker build context as the current directory
-              // (which is '${SERVICE}' due to the preceding 'dir' step).
+            // --- Construction et push Docker (avec login explicite) ---
+            // Utilise 'withCredentials' pour exposer le texte secret du PAT dans une variable temporaire,
+            // puis exécute 'docker login' et 'docker push'.
+            withCredentials([string(credentialsId: 'DOCKER_HUB_PASS', variable: 'DOCKER_HUB_PAT_VALUE')]) {
+              echo "INFO: Authentification auprès de Docker Hub et construction/push de l'image : ${IMAGE}:${BUILD_NUMBER}."
+
+              // Exécuter la commande docker login.
+              // Note: Le nom d'utilisateur pour docker login avec un PAT est votre nom d'utilisateur Docker Hub ('tdksoft').
+              // Le PAT est passé via stdin pour des raisons de sécurité.
+              sh "echo ${DOCKER_HUB_PAT_VALUE} | docker login --username tdksoft --password-stdin https://registry.hub.docker.com"
+
+              // Construire l'image Docker. Le '.' spécifie le contexte de construction Docker comme le répertoire actuel.
               def builtImage = docker.build("${IMAGE}:${BUILD_NUMBER}", '.')
+              
+              // Pousser l'image vers Docker Hub.
               builtImage.push()
-              echo "SUCCESS: Docker image '${IMAGE}:${BUILD_NUMBER}' successfully built and pushed."
+
+              // Déconnexion de Docker Hub pour nettoyer l'environnement de l'agent.
+              sh "docker logout https://registry.hub.docker.com"
+              
+              echo "SUCCÈS : L'image Docker '${IMAGE}:${BUILD_NUMBER}' a été construite et poussée avec succès."
             }
           }
         }
       }
     }
 
-    // Stage 2: Deploy Application with Helm
-    // This stage handles the deployment of the Docker image to Kubernetes using Helm.
+    // Étape 2 : Déployer l'application avec Helm
+    // Cette étape gère le déploiement de l'image Docker sur Kubernetes à l'aide de Helm.
     stage('Deploy Helm') {
       steps {
         script {
-          def targetNamespace = "" // Variable to hold the target Kubernetes namespace
+          def targetNamespace = "" // Variable pour contenir l'espace de noms Kubernetes cible
 
-          // Determine the target Kubernetes namespace based on the Git branch.
+          // Déterminer l'espace de noms Kubernetes cible en fonction de la branche Git.
           if (env.BRANCH_NAME == "develop") {
             targetNamespace = "dev"
           } else if (env.BRANCH_NAME == "staging") {
@@ -94,17 +106,17 @@ pipeline {
           } else if (env.BRANCH_NAME == "main") {
             targetNamespace = "prod"
           } else {
-            echo "INFO: Skipping deployment for branch '${env.BRANCH_NAME}'. No matching deployment environment found."
-            return // Exit this stage for unhandled branches
+            echo "INFO: Saut du déploiement pour la branche '${env.BRANCH_NAME}'. Aucun environnement de déploiement correspondant trouvé."
+            return // Quitter cette étape pour les branches non gérées
           }
 
-          echo "INFO: Target Kubernetes Namespace identified: '${targetNamespace}'."
-          echo "INFO: Ensuring Kubernetes namespace '${targetNamespace}' exists."
+          echo "INFO: Espace de noms Kubernetes cible identifié : '${targetNamespace}'."
+          echo "INFO: Vérification de l'existence de l'espace de noms Kubernetes '${targetNamespace}'."
           sh "kubectl create namespace ${targetNamespace} --dry-run=client -o yaml | kubectl apply -f -"
 
-          // Change directory to the Helm chart for the selected service.
+          // Changer le répertoire vers le chart Helm pour le service sélectionné.
           dir("${SERVICE}/helm/${SERVICE}") {
-            echo "INFO: Deploying Helm chart for '${SERVICE}' to namespace '${targetNamespace}'..."
+            echo "INFO: Déploiement du chart Helm pour '${SERVICE}' dans l'espace de noms '${targetNamespace}'..."
             sh """
               helm upgrade --install ${SERVICE} . \\
                 --namespace ${targetNamespace} \\
@@ -113,37 +125,37 @@ pipeline {
                 --wait \\
                 --timeout 5m
             """
-            echo "SUCCESS: Helm deployment for '${SERVICE}' completed successfully in namespace '${targetNamespace}'."
+            echo "SUCCÈS : Le déploiement Helm pour '${SERVICE}' s'est terminé avec succès dans l'espace de noms '${targetNamespace}'."
           }
         }
       }
     }
   }
 
-  // --- Post-build Actions ---
-  // Actions to be executed after all stages have completed, regardless of their outcome.
+  // --- Actions post-construction ---
+  // Actions à exécuter après que toutes les étapes sont terminées, quel que soit leur résultat.
   post {
-    // Action to take if any stage in the pipeline fails.
+    // Action à entreprendre si une étape du pipeline échoue.
     failure {
-      echo "ERROR: Pipeline for ${SERVICE} on branch ${env.BRANCH_NAME} failed!"
-      // Send an email notification for pipeline failure.
-      // This relies on Jenkins' global email configuration (Manage Jenkins -> Configure System).
+      echo "ERREUR : Le pipeline pour ${SERVICE} sur la branche ${env.BRANCH_NAME} a échoué !"
+      // Envoyer une notification par e-mail en cas d'échec du pipeline.
+      // Cela dépend de la configuration globale des e-mails de Jenkins (Gérer Jenkins -> Configurer le système).
       mail to: 'devops@monprojet.com',
-           subject: "Pipeline Failure: ${SERVICE} - Branch: ${env.BRANCH_NAME}",
+           subject: "Échec du pipeline : ${SERVICE} - Branche : ${env.BRANCH_NAME}",
            body: """
-             The CI/CD pipeline for service '${SERVICE}' on branch '${env.BRANCH_NAME}' has failed.
+             Le pipeline CI/CD pour le service '${SERVICE}' sur la branche '${env.BRANCH_NAME}' a échoué.
 
-             Build Number: ${env.BUILD_NUMBER}
-             Project Name: ${env.JOB_NAME}
-             Full Log: ${env.BUILD_URL}/console
+             Numéro de build : ${env.BUILD_NUMBER}
+             Nom du projet : ${env.JOB_NAME}
+             Journal complet : ${env.BUILD_URL}/console
 
-             Please review the Jenkins console output for details.
+             Veuillez consulter la sortie de la console Jenkins pour plus de détails.
            """.stripIndent()
     }
-    // Action to take if the pipeline completes successfully.
+    // Action à entreprendre si le pipeline se termine avec succès.
     success {
-      echo "SUCCESS: Pipeline for ${SERVICE} on branch ${env.BRANCH_NAME} completed successfully!"
+      echo "SUCCÈS : Le pipeline pour ${SERVICE} sur la branche ${env.BRANCH_NAME} s'est terminé avec succès !"
     }
-    // Add other post-actions as needed (e.g., 'always', 'unstable', 'cleanup').
+    // Ajouter d'autres actions post-construction si nécessaire (par ex. 'always', 'unstable', 'cleanup').
   }
 }
