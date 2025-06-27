@@ -17,7 +17,7 @@ pipeline {
     SERVICE = "${service}" // Use the 'service' parameter to set the global SERVICE env var
     BUILD_NUMBER = "${build}" // Use the 'build' parameter to set the global BUILD_NUMBER env var
     IMAGE = "tdksfot/${SERVICE}"
-    DOCKER_HUB_CREDENTIAL_ID = 'DOCKERHUB_PASS'
+    DOCKER_HUB_CREDENTIAL_ID = 'DOCKER_HUB_PASS'
   }
 
   stages {
