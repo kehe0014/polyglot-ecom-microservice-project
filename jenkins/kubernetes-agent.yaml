@@ -10,7 +10,6 @@ spec:
   imagePullSecrets:
   - name: regcred # <--- This refers to the secret created in the jenkis machine
   # This secret should contain the Docker registry credentials
-  # for pulling the jenkins/jnlp-agent image.
 
   containers:
   - name: jnlp
