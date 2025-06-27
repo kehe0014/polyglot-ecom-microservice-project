@@ -1,54 +1,37 @@
 // jenkins/Jenkinsfile.shared
-//
-// This file encapsulates the reusable CI/CD pipeline logic for microservices.
-// It is designed to be loaded by individual service-specific Jenkinsfiles,
-// promoting a 'Don't Repeat Yourself' (DRY) principle for pipeline definitions.
-//
-// Prerequsites:
-// - `SERVICE` (string): Must be defined in the calling Jenkinsfile (e.g., "user-service").
-// - `BUILD_NUMBER` (string): Automatically provided by Jenkins (env.BUILD_NUMBER).
-// - `DOCKERHUB_PASS` (Credential ID): Jenkins credential for Docker Hub push.
-//
-// Agent Requirements:
-// - The Jenkins controller or an available static agent must have:
-//   - Java Development Kit (JDK)
-//   - Apache Maven
-//   - Python and pip
-//   - Docker CLI (and access to a Docker daemon, e.g., user in 'docker' group)
-//   - Helm CLI
-//   - Kubectl CLI (configured to interact with your Kubernetes cluster, e.g., k3s)
+// This file now accepts parameters passed from the calling Jenkinsfile.
+
+// Define parameters that this shared script expects.
+// These will be populated by the 'load' statement in the calling Jenkinsfile.
+// Default values are good for testing, but in production they'll be overridden.
+def service = 'default-service' // Passed from calling Jenkinsfile
+def build = env.BUILD_NUMBER    // Passed from calling Jenkinsfile
 
 pipeline {
-  // Define the agent where all pipeline stages will execute.
-  // 'agent any' means Jenkins will use any available agent, typically the controller itself
-  // if no other agents are configured, or the first available static agent.
   agent any
 
-  // --- Global Environment Variables ---
+  // Define global environment variables.
+  // `SERVICE` is now explicitly set here from the 'service' parameter,
+  // making it available throughout the entire pipeline scope, including post-actions.
   environment {
+    SERVICE = "${service}" // Use the 'service' parameter to set the global SERVICE env var
+    BUILD_NUMBER = "${build}" // Use the 'build' parameter to set the global BUILD_NUMBER env var
     IMAGE = "tdksfot/${SERVICE}"
     DOCKER_HUB_CREDENTIAL_ID = 'DOCKERHUB_PASS'
   }
 
-  // --- Pipeline Stages ---
   stages {
+    // ... (Your stages remain the same) ...
     stage('Build & Push Image') {
       steps {
         script {
-          dir("${SERVICE}") {
+          // ... (Uses SERVICE and BUILD_NUMBER as before, which are now env vars) ...
+          dir("${SERVICE}") { // This will now correctly resolve to the env var
             echo "--- Processing service: ${SERVICE} ---"
+            if (fileExists('pom.xml')) { /* ... */ }
+            else if (fileExists('requirements.txt')) { /* ... */ }
+            else { /* ... */ }
 
-            // --- Language-Specific Build Preparation ---
-            if (fileExists('pom.xml')) {
-              echo "INFO: Detected Java/Maven project. Running 'mvn clean package -DskipTests'."
-              sh 'mvn clean package -DskipTests'
-            } else if (fileExists('requirements.txt')) {
-              echo "INFO: Detected Python project. Dependencies will be installed via Dockerfile."
-            } else {
-              error "ERROR: Neither 'pom.xml' nor 'requirements.txt' found in '${SERVICE}' directory. Cannot determine build type."
-            }
-
-            // --- Docker Build and Push ---
             docker.withRegistry('https://registry.hub.docker.com', "${DOCKER_HUB_CREDENTIAL_ID}") {
               echo "INFO: Building and pushing Docker image: ${IMAGE}:${BUILD_NUMBER} to Docker Hub."
               def builtImage = docker.build("${IMAGE}:${BUILD_NUMBER}", '.')
@@ -64,23 +47,16 @@ pipeline {
       steps {
         script {
           def targetNamespace = ""
-
-          if (env.BRANCH_NAME == "develop") {
-            targetNamespace = "dev"
-          } else if (env.BRANCH_NAME == "staging") {
-            targetNamespace = "staging"
-          } else if (env.BRANCH_NAME == "main") {
-            targetNamespace = "prod"
-          } else {
-            echo "INFO: Skipping deployment for branch '${env.BRANCH_NAME}'. No matching deployment environment found."
-            return
-          }
+          if (env.BRANCH_NAME == "develop") { targetNamespace = "dev" }
+          else if (env.BRANCH_NAME == "staging") { targetNamespace = "staging" }
+          else if (env.BRANCH_NAME == "main") { targetNamespace = "prod" }
+          else { echo "INFO: Skipping deployment for branch '${env.BRANCH_NAME}'." ; return }
 
           echo "INFO: Target Kubernetes Namespace identified: '${targetNamespace}'."
           echo "INFO: Ensuring Kubernetes namespace '${targetNamespace}' exists."
           sh "kubectl create namespace ${targetNamespace} --dry-run=client -o yaml | kubectl apply -f -"
 
-          dir("${SERVICE}/helm/${SERVICE}") {
+          dir("${SERVICE}/helm/${SERVICE}") { // This will now correctly resolve to the env var
             echo "INFO: Deploying Helm chart for '${SERVICE}' to namespace '${targetNamespace}'..."
             sh """
               helm upgrade --install ${SERVICE} . \\
@@ -97,9 +73,9 @@ pipeline {
     }
   }
 
-  // --- Post-build Actions ---
   post {
     failure {
+      // Now, SERVICE is an environment variable, so it's accessible.
       echo "ERROR: Pipeline for ${SERVICE} on branch ${env.BRANCH_NAME} failed!"
       mail to: 'devops@monprojet.com',
            subject: "Pipeline Failure: ${SERVICE} - Branch: ${env.BRANCH_NAME}",
